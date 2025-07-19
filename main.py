@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from vertexai.preview import agentbuilder
 import os
+import uvicorn
 
 app = FastAPI()
 
@@ -19,3 +20,6 @@ class Query(BaseModel):
 async def chat(q: Query):
     response = agent.send_message(q.message, q.session_id)
     return {"response": response}
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8080)
