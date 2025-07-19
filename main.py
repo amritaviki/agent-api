@@ -1,11 +1,11 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from vertexai.preview.agentbuilder import Agent
+from vertexai.preview import agentbuilder
 import os
 
 app = FastAPI()
 
-agent = Agent(
+agent = agentbuilder.Agent(
     project=os.getenv("AGENT_PROJECT_ID"),
     location=os.getenv("AGENT_LOCATION"),
     agent_id=os.getenv("AGENT_ID")
