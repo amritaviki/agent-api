@@ -19,8 +19,6 @@ spec:
         - name: http1
           containerPort: 8080
         env:
-        - name: PORT
-          value: "8080"
         - name: AGENT_PROJECT_ID
           value: "agentic-ai-hackathon-466105"
         - name: AGENT_LOCATION
