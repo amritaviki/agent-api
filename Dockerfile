@@ -1,14 +1,17 @@
 FROM python:3.11-slim
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y build-essential
+RUN apt-get update && \
+    apt-get install -y build-essential && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
+# Copy requirements first for better caching
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Use Cloud Run's PORT variable
-CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080} --timeout-keep-alive 300
+# Use PORT environment variable with exec form
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT} --timeout-keep-alive 300"]

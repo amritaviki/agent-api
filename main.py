@@ -3,52 +3,59 @@ from pydantic import BaseModel
 from vertexai.preview import agentbuilder
 import os
 import asyncio
-import threading
 import logging
+import threading
 
 app = FastAPI()
 logger = logging.getLogger("uvicorn")
 
-# Global agent instance
+# Global state for agent
 agent = None
-init_lock = threading.Lock()
-is_initialized = False
+initialization_complete = threading.Event()
 
 def initialize_agent():
-    global agent, is_initialized
+    global agent
     try:
-        logger.info("Initializing Vertex AI agent...")
+        logger.info("⚙️ Starting Vertex AI agent initialization...")
         agent = agentbuilder.Agent(
             project=os.getenv("AGENT_PROJECT_ID"),
             location=os.getenv("AGENT_LOCATION"),
             agent_id=os.getenv("AGENT_ID")
         )
-        logger.info("Agent initialized successfully")
-        is_initialized = True
+        logger.info("✅ Vertex AI agent initialized successfully")
     except Exception as e:
-        logger.error(f"Agent initialization failed: {str(e)}")
-        raise RuntimeError("Agent initialization failed") from e
+        logger.error(f"❌ Agent initialization failed: {str(e)}")
+    finally:
+        initialization_complete.set()
 
-@app.on_event("startup")
-async def startup_event():
-    # Run initialization in separate thread to avoid blocking
-    init_thread = threading.Thread(target=initialize_agent)
-    init_thread.daemon = True
-    init_thread.start()
+# Start initialization in a separate thread
+threading.Thread(target=initialize_agent, daemon=True).start()
 
 class Query(BaseModel):
     message: str
     session_id: str
 
+@app.on_event("startup")
+async def startup_event():
+    logger.info("🚀 FastAPI application starting up")
+
+@app.get("/startup-probe")
+async def startup_probe():
+    """Endpoint for Cloud Run startup check"""
+    return {"status": "ready"}
+
 @app.get("/health")
 async def health_check():
-    if is_initialized:
+    """Endpoint for health checks"""
+    if initialization_complete.is_set() and agent is not None:
         return {"status": "ready"}
     return {"status": "initializing"}, 503
 
 @app.post("/chat")
 async def chat(q: Query):
-    if not is_initialized:
+    if agent is None:
+        if initialization_complete.is_set():
+            raise HTTPException(status_code=500, detail="Agent initialization failed")
         raise HTTPException(status_code=503, detail="Agent initializing")
     
     try:
@@ -56,4 +63,10 @@ async def chat(q: Query):
         return {"response": response}
     except Exception as e:
         logger.error(f"Chat error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Processing error") from e
+        raise HTTPException(status_code=500, detail="Processing error")
+
+# For local testing
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8080))
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
