@@ -1,48 +1,56 @@
-import os
-import json
-import requests
 from flask import Flask, request, jsonify
-from google.cloud import secretmanager
-from google.oauth2 import service_account
+import os
+import google.auth
 from google.auth.transport.requests import Request
+from google.oauth2 import service_account
+import requests
+import json
 
 app = Flask(__name__)
 
-PROJECT_ID = os.environ["PROJECT_ID"]
-AGENT_ID = os.environ["AGENT_ID"]
-LOCATION = os.environ["LOCATION"]
+@app.route('/')
+def home():
+    return 'App running', 200
 
-def get_credentials():
-    client = secretmanager.SecretManagerServiceClient()
-    name = f"projects/{PROJECT_ID}/secrets/agent-creds/versions/latest"
-    response = client.access_secret_version(name=name)
-    secret_payload = response.payload.data.decode("UTF-8")
-    credentials_info = json.loads(secret_payload)
-    return service_account.Credentials.from_service_account_info(credentials_info)
+@app.route('/startup-probe')
+def startup_probe():
+    return 'OK', 200
 
+@app.route('/get-access-token', methods=['GET'])
 def get_access_token():
-    credentials = get_credentials()
-    credentials.refresh(Request())
-    return credentials.token
+    try:
+        creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+        scopes = ['https://www.googleapis.com/auth/cloud-platform']
+        credentials = service_account.Credentials.from_service_account_file(creds_path, scopes=scopes)
+        credentials.refresh(Request())
+        access_token = credentials.token
+        return jsonify({'access_token': access_token})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/call-agent', methods=['POST'])
 def call_agent():
-    access_token = get_access_token()
-    user_input = request.json.get("query", "")
+    try:
+        creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+        scopes = ['https://www.googleapis.com/auth/cloud-platform']
+        credentials = service_account.Credentials.from_service_account_file(creds_path, scopes=scopes)
+        credentials.refresh(Request())
+        access_token = credentials.token
 
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json"
-    }
+        project_id = os.environ.get("PROJECT_ID")
+        agent_id = os.environ.get("AGENT_ID")
+        url_base = os.environ.get("VERTEX_AGENT_URL")
 
-    body = {
-        "query": user_input
-    }
-
-    url = f"https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{PROJECT_ID}/locations/{LOCATION}/agents/{AGENT_ID}:chat"
-
-    response = requests.post(url, headers=headers, json=body)
-    return jsonify(response.json())
+        endpoint = f"{url_base}/v1/projects/{project_id}/locations/us-central1/agents/{agent_id}:detectIntent"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+        payload = request.get_json()
+        response = requests.post(endpoint, headers=headers, json=payload)
+        return jsonify(response.json())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    app.run()
+    app.run(host='0.0.0.0', port=8080)
