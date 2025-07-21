@@ -3,3 +3,4 @@ uvicorn
 requests
 google-auth
 google-cloud-secret-manager
+flask
