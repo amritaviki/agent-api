@@ -1,40 +1,48 @@
-import json
 import os
+import json
 import requests
-from fastapi import FastAPI, Request
-from pydantic import BaseModel
-from google.auth import jwt
-from google.auth.transport.requests import Request as GoogleRequest
+from flask import Flask, request, jsonify
+from google.cloud import secretmanager
+from google.oauth2 import service_account
+from google.auth.transport.requests import Request
 
-class TextInput(BaseModel):
-    text: str
+app = Flask(__name__)
 
-app = FastAPI()
+PROJECT_ID = os.environ["PROJECT_ID"]
+AGENT_ID = os.environ["AGENT_ID"]
+LOCATION = os.environ["LOCATION"]
+
+def get_credentials():
+    client = secretmanager.SecretManagerServiceClient()
+    name = f"projects/{PROJECT_ID}/secrets/agent-creds/versions/latest"
+    response = client.access_secret_version(name=name)
+    secret_payload = response.payload.data.decode("UTF-8")
+    credentials_info = json.loads(secret_payload)
+    return service_account.Credentials.from_service_account_info(credentials_info)
 
 def get_access_token():
-    sa_info = json.loads(os.environ["SERVICE_ACCOUNT_JSON"])
-    credentials = jwt.Credentials.from_service_account_info(
-        sa_info, audience="https://dialogflow.googleapis.com/"
-    )
-    credentials.refresh(GoogleRequest())
+    credentials = get_credentials()
+    credentials.refresh(Request())
     return credentials.token
 
-@app.post("/detect-intent")
-def detect_intent(input_data: TextInput):
-    token = get_access_token()
+@app.route('/call-agent', methods=['POST'])
+def call_agent():
+    access_token = get_access_token()
+    user_input = request.json.get("query", "")
+
     headers = {
-        "Authorization": f"Bearer {token}",
+        "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
     }
-    session_id = "session-001"
-    url = f"https://us-central1-dialogflow.googleapis.com/v3/projects/{os.environ['PROJECT_ID']}/locations/us-central1/agents/{os.environ['AGENT_ID']}/sessions/{session_id}:detectIntent"
-    payload = {
-        "queryInput": {
-            "text": {
-                "text": input_data.text,
-                "languageCode": "en"
-            }
-        }
+
+    body = {
+        "query": user_input
     }
-    response = requests.post(url, headers=headers, json=payload)
-    return response.json()
+
+    url = f"https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{PROJECT_ID}/locations/{LOCATION}/agents/{AGENT_ID}:chat"
+
+    response = requests.post(url, headers=headers, json=body)
+    return jsonify(response.json())
+
+if __name__ == '__main__':
+    app.run()
