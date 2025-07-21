@@ -1,4 +1,4 @@
 fastapi
 uvicorn
-google-cloud-aiplatform
-pydantic
+requests
+google-auth
